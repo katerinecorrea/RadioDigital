@@ -1,9 +1,15 @@
 package com.example.radiodigital
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.media.MediaPlayer
+import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -27,21 +33,45 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
+    private var mediaPlayer: MediaPlayer? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Inicializamos el reproductor con tu archivo de audio (asegúrate de que coincida con el nombre que dejaste en raw, sin .mp3)
+        mediaPlayer = MediaPlayer.create(this, R.raw.cancion1)
+
         setContent {
             // Colores
             val bgColor = Color(0xFF0D0D0D)      // Negro
             val cardColor = Color(0xFFE0E0E0)    // Plateado
-            val fucsiaColor = Color(0xFFD27794)  // Rosa fucsia
+            val y2kPink = Color(0xFFD27794)      // Rosado
 
-            // Obtenemos el contexto correctamente en la raíz del Composable
             val context = LocalContext.current
 
-            // Estado para almacenar la foto que toma la cámara
-            var capturedImage by remember { mutableStateOf<Bitmap?>(null) }
+            // Función para vibración háptica
+            val triggerHaptic = {
+                val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                    vibratorManager.defaultVibrator
+                } else {
+                    @Suppress("DEPRECATION")
+                    context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                }
 
-            // Lanzador para abrir la cámara nativa
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator.vibrate(50)
+                }
+            }
+
+            // Estado para la foto de perfil y el estado de reproducción
+            var capturedImage by remember { mutableStateOf<Bitmap?>(null) }
+            var isPlaying by remember { mutableStateOf(false) }
+
+            // Lanzador de cámara
             val cameraLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.TakePicturePreview()
             ) { bitmap ->
@@ -50,12 +80,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // Lanzador para solicitar el permiso de cámara
+            // Lanzador de permisos de cámara
             val permissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestPermission()
             ) { isGranted ->
                 if (isGranted) {
-                    // Si el usuario acepta, abre la cámara
                     cameraLauncher.launch(null)
                 }
             }
@@ -74,18 +103,18 @@ class MainActivity : ComponentActivity() {
                     // Título principal
                     Text(
                         text = " Radio Digital ",
-                        fontSize = 26.sp,
+                        fontSize = 24.sp,
                         fontWeight = FontWeight.Bold,
-                        color = fucsiaColor
+                        color = y2kPink
                     )
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
 
-                    // Tarjeta principal con el perfil y la cámara
+                    // Tarjeta principal (Perfil + Controles de Audio)
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(260.dp),
+                            .height(340.dp),
                         colors = CardDefaults.cardColors(containerColor = cardColor)
                     ) {
                         Column(
@@ -93,41 +122,37 @@ class MainActivity : ComponentActivity() {
                                 .fillMaxSize()
                                 .padding(16.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
+                            verticalArrangement = Arrangement.SpaceAround
                         ) {
-                            // Avatar Circular Y2K
+                            // Avatar Circular
                             Box(
                                 modifier = Modifier
-                                    .size(100.dp)
+                                    .size(90.dp)
                                     .clip(CircleShape)
-                                    .border(4.dp, fucsiaColor, CircleShape)
+                                    .border(4.dp, y2kPink, CircleShape)
                                     .background(Color.DarkGray),
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (capturedImage != null) {
-                                    // Muestra la foto real tomada con la cámara
                                     Image(
                                         bitmap = capturedImage!!.asImageBitmap(),
                                         contentDescription = "Foto de perfil",
                                         modifier = Modifier.fillMaxSize()
                                     )
                                 } else {
-                                    // Texto por defecto si aún no hay foto
                                     Text(
                                         text = "FOTO",
                                         color = Color.White,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp
+                                        fontSize = 13.sp
                                     )
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            // Botón para abrir la cámara
+                            // Botón de Cámara
                             Button(
                                 onClick = {
-                                    // Verifica si ya tiene el permiso de la cámara
+                                    triggerHaptic()
                                     when {
                                         ContextCompat.checkSelfPermission(
                                             context,
@@ -136,23 +161,66 @@ class MainActivity : ComponentActivity() {
                                             cameraLauncher.launch(null)
                                         }
                                         else -> {
-                                            // Si no lo tiene se pide
                                             permissionLauncher.launch(Manifest.permission.CAMERA)
                                         }
                                     }
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = fucsiaColor)
+                                colors = ButtonDefaults.buttonColors(containerColor = y2kPink),
+                                modifier = Modifier.height(36.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                             ) {
-                                Text(
-                                    text = " Tomar foto de perfil",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                Text(text = " Tomar Foto", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            Divider(color = Color.Gray, thickness = 1.dp, modifier = Modifier.padding(vertical = 4.dp))
+
+                            // Controles de Reproducción de Audio
+                            Text(
+                                text = if (isPlaying) " Reproduciendo..." else " Pausado",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.DarkGray
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly
+                            ) {
+                                // Botón Play
+                                Button(
+                                    onClick = {
+                                        triggerHaptic()
+                                        mediaPlayer?.start()
+                                        isPlaying = true
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = y2kPink)
+                                ) {
+                                    Text(text = " Play", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+
+                                // Botón Pause
+                                Button(
+                                    onClick = {
+                                        triggerHaptic()
+                                        mediaPlayer?.pause()
+                                        isPlaying = false
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
+                                ) {
+                                    Text(text = "Pause", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Liberamos memoria del reproductor al cerrar la app
+        mediaPlayer?.release()
+        mediaPlayer = null
     }
 }
