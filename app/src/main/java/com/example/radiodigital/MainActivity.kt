@@ -17,8 +17,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,24 +36,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 
+data class Song(val title: String, val resourceId: Int)
+
 class MainActivity : ComponentActivity() {
     private var mediaPlayer: MediaPlayer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Inicializamos el reproductor con tu archivo de audio (asegúrate de que coincida con el nombre que dejaste en raw, sin .mp3)
-        mediaPlayer = MediaPlayer.create(this, R.raw.cancion1)
-
         setContent {
-            // Colores
-            val bgColor = Color(0xFF0D0D0D)      // Negro
-            val cardColor = Color(0xFFE0E0E0)    // Plateado
-            val y2kPink = Color(0xFFD27794)      // Rosado
+            val bgColor = Color(0xFF0D0D0D)    // Negro
+            val cardColor = Color(0xFFE0E0E0)  // Plateado
+            val y2kPink = Color(0xFFD27794)    // Rosado
 
             val context = LocalContext.current
 
-            // Función para vibración háptica
+            // Función de vibración háptica
             val triggerHaptic = {
                 val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
@@ -67,11 +69,35 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // Estado para la foto de perfil y el estado de reproducción
+            // Estados de la app
+            var usernameInput by remember { mutableStateOf("") }
+            var isProfileConfigured by remember { mutableStateOf(false) }
             var capturedImage by remember { mutableStateOf<Bitmap?>(null) }
+
+            // Lista de canciones
+            val songList = listOf(
+                Song("Chill Track", R.raw.cancion1),
+                Song("Club Music", R.raw.cancion2),
+                Song("Water Pop", R.raw.cancion3),
+                Song("Sinfonía", R.raw.cancion4),
+            )
+
+            var currentSongIndex by remember { mutableStateOf(0) }
+            var currentSongTitle by remember { mutableStateOf("Ninguna seleccionada") }
             var isPlaying by remember { mutableStateOf(false) }
 
-            // Lanzador de cámara
+            // Función auxiliar para reproducir una canción por su índice
+            val playSongAtIndex: (Int) -> Unit = { index ->
+                currentSongIndex = index
+                val song = songList[currentSongIndex]
+                mediaPlayer?.release()
+                mediaPlayer = MediaPlayer.create(context, song.resourceId)
+                mediaPlayer?.start()
+                currentSongTitle = song.title
+                isPlaying = true
+            }
+
+            // Lanzadores de cámara y permisos
             val cameraLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.TakePicturePreview()
             ) { bitmap ->
@@ -80,7 +106,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // Lanzador de permisos de cámara
             val permissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestPermission()
             ) { isGranted ->
@@ -97,12 +122,13 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // Título principal
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Título Y2K
                     Text(
-                        text = " Radio Digital ",
+                        text = "Radio Digital Y2K",
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Bold,
                         color = y2kPink
@@ -110,104 +136,243 @@ class MainActivity : ComponentActivity() {
 
                     Spacer(modifier = Modifier.height(20.dp))
 
-                    // Tarjeta principal (Perfil + Controles de Audio)
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(340.dp),
-                        colors = CardDefaults.cardColors(containerColor = cardColor)
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.SpaceAround
+                    // vista inicial de perfil
+                    if (!isProfileConfigured) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = cardColor),
+                            shape = RoundedCornerShape(16.dp)
                         ) {
-                            // Avatar Circular
-                            Box(
+                            Column(
                                 modifier = Modifier
-                                    .size(90.dp)
-                                    .clip(CircleShape)
-                                    .border(4.dp, y2kPink, CircleShape)
-                                    .background(Color.DarkGray),
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth()
+                                    .padding(20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
-                                if (capturedImage != null) {
-                                    Image(
-                                        bitmap = capturedImage!!.asImageBitmap(),
-                                        contentDescription = "Foto de perfil",
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                } else {
-                                    Text(
-                                        text = "FOTO",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp
-                                    )
-                                }
-                            }
+                                Text(
+                                    text = "Configura tu Perfil",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.DarkGray
+                                )
 
-                            // Botón de Cámara
-                            Button(
-                                onClick = {
-                                    triggerHaptic()
-                                    when {
-                                        ContextCompat.checkSelfPermission(
-                                            context,
-                                            Manifest.permission.CAMERA
-                                        ) == PackageManager.PERMISSION_GRANTED -> {
-                                            cameraLauncher.launch(null)
-                                        }
-                                        else -> {
-                                            permissionLauncher.launch(Manifest.permission.CAMERA)
-                                        }
+                                OutlinedTextField(
+                                    value = usernameInput,
+                                    onValueChange = { usernameInput = it },
+                                    label = { Text("Nombre de Usuario") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                // Avatar Preview
+                                Box(
+                                    modifier = Modifier
+                                        .size(80.dp)
+                                        .clip(CircleShape)
+                                        .border(3.dp, y2kPink, CircleShape)
+                                        .background(Color.Gray),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (capturedImage != null) {
+                                        Image(
+                                            bitmap = capturedImage!!.asImageBitmap(),
+                                            contentDescription = "Avatar",
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        Text(text = "FOTO", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                     }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = y2kPink),
-                                modifier = Modifier.height(36.dp),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
-                            ) {
-                                Text(text = " Tomar Foto", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
+                                }
 
-                            Divider(color = Color.Gray, thickness = 1.dp, modifier = Modifier.padding(vertical = 4.dp))
-
-                            // Controles de Reproducción de Audio
-                            Text(
-                                text = if (isPlaying) " Reproduciendo..." else " Pausado",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.DarkGray
-                            )
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly
-                            ) {
-                                // Botón Play
                                 Button(
                                     onClick = {
                                         triggerHaptic()
-                                        mediaPlayer?.start()
-                                        isPlaying = true
+                                        when {
+                                            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED -> {
+                                                cameraLauncher.launch(null)
+                                            }
+                                            else -> {
+                                                permissionLauncher.launch(Manifest.permission.CAMERA)
+                                            }
+                                        }
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = y2kPink)
                                 ) {
-                                    Text(text = " Play", color = Color.White, fontWeight = FontWeight.Bold)
+                                    Text(text = "Tomar foto de perfil", color = Color.White)
                                 }
 
-                                // Botón Pause
                                 Button(
                                     onClick = {
                                         triggerHaptic()
-                                        mediaPlayer?.pause()
-                                        isPlaying = false
+                                        if (usernameInput.isNotBlank()) {
+                                            isProfileConfigured = true
+                                        }
                                     },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text(text = "Pause", color = Color.White, fontWeight = FontWeight.Bold)
+                                    Text(text = "Entrar a la radio", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    } else {
+                        // tarjeta de perfil superior
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = cardColor),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(50.dp)
+                                        .clip(CircleShape)
+                                        .border(2.dp, y2kPink, CircleShape)
+                                        .background(Color.Gray),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (capturedImage != null) {
+                                        Image(
+                                            bitmap = capturedImage!!.asImageBitmap(),
+                                            contentDescription = "Avatar",
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        Text(text = "USR", color = Color.White, fontSize = 10.sp)
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.width(16.dp))
+
+                                Text(
+                                    text = usernameInput.uppercase(),
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.DarkGray,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // lista de canciones
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            colors = CardDefaults.cardColors(containerColor = cardColor),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Pistas",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.DarkGray
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // Lista dinámica de canciones con índice
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    itemsIndexed(songList) { index, song ->
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    triggerHaptic()
+                                                    playSongAtIndex(index)
+                                                },
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = if (currentSongIndex == index && isPlaying) y2kPink.copy(alpha = 0.2f) else Color.White
+                                            ),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(12.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(text = song.title, color = Color.DarkGray, fontWeight = FontWeight.Medium)
+                                                Text(text = if (currentSongIndex == index && isPlaying) "Sonando..." else "Play", color = y2kPink, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Divider(color = Color.Gray, thickness = 1.dp)
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // Reproductor actual y controles
+                                Text(
+                                    text = if (isPlaying) "Sonando: $currentSongTitle" else "Estado: Pausado",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.DarkGray
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // Fila de Botones (Play, Pause, Siguiente)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceEvenly
+                                ) {
+                                    Button(
+                                        onClick = {
+                                            triggerHaptic()
+                                            mediaPlayer?.start()
+                                            isPlaying = true
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = y2kPink)
+                                    ) {
+                                        Text(text = "Play", color = Color.White, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            triggerHaptic()
+                                            mediaPlayer?.pause()
+                                            isPlaying = false
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
+                                    ) {
+                                        Text(text = "Pause", color = Color.White, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    // Botón Siguiente (con loop circular)
+                                    Button(
+                                        onClick = {
+                                            triggerHaptic()
+                                            val nextIndex = (currentSongIndex + 1) % songList.size
+                                            playSongAtIndex(nextIndex)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = y2kPink)
+                                    ) {
+                                        Text(text = "Siguiente", color = Color.White, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
                         }
@@ -219,7 +384,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // Liberamos memoria del reproductor al cerrar la app
         mediaPlayer?.release()
         mediaPlayer = null
     }
