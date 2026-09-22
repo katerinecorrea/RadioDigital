@@ -35,11 +35,46 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-
-data class Song(val title: String, val resourceId: Int)
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import java.net.HttpURLConnection
+import java.net.URL
 
 class MainActivity : ComponentActivity() {
     private var mediaPlayer: MediaPlayer? = null
+
+    // Función que consume la API de Radio Browser
+    private suspend fun fetchStations(): List<Station> = withContext(Dispatchers.IO) {
+        val stationList = mutableListOf<Station>()
+        try {
+            val url = URL("https://all.api.radio-browser.info/json/stations/bycountry/colombia?limit=20")
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 8000
+            connection.readTimeout = 8000
+
+            if (connection.responseCode == 200) {
+                val responseString = connection.inputStream.bufferedReader().use { it.readText() }
+                val jsonArray = JSONArray(responseString)
+
+                for (i in 0 until jsonArray.length()) {
+                    val jsonObject = jsonArray.getJSONObject(i)
+                    val name = jsonObject.optString("name", "Emisora Desconocida").trim()
+                    val urlResolved = jsonObject.optString("url_resolved", "")
+                    val country = jsonObject.optString("country", "Desconocido")
+                    val favicon = jsonObject.optString("favicon", "")
+
+                    if (urlResolved.isNotBlank()) {
+                        stationList.add(Station(name, urlResolved, country, favicon))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return@withContext stationList
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,27 +109,41 @@ class MainActivity : ComponentActivity() {
             var isProfileConfigured by remember { mutableStateOf(false) }
             var capturedImage by remember { mutableStateOf<Bitmap?>(null) }
 
-            // Lista de canciones
-            val songList = listOf(
-                Song("Chill Track", R.raw.cancion1),
-                Song("Club Music", R.raw.cancion2),
-                Song("Water Pop", R.raw.cancion3),
-                Song("Sinfonía", R.raw.cancion4),
-            )
-
-            var currentSongIndex by remember { mutableStateOf(0) }
-            var currentSongTitle by remember { mutableStateOf("Ninguna seleccionada") }
+            // Lista dinámica de emisoras desde la API
+            var stationList by remember { mutableStateOf<List<Station>>(emptyList()) }
+            var currentStationIndex by remember { mutableStateOf(0) }
+            var currentStationName by remember { mutableStateOf("Ninguna seleccionada") }
             var isPlaying by remember { mutableStateOf(false) }
+            var isLoading by remember { mutableStateOf(false) }
 
-            // Función auxiliar para reproducir una canción por su índice
-            val playSongAtIndex: (Int) -> Unit = { index ->
-                currentSongIndex = index
-                val song = songList[currentSongIndex]
-                mediaPlayer?.release()
-                mediaPlayer = MediaPlayer.create(context, song.resourceId)
-                mediaPlayer?.start()
-                currentSongTitle = song.title
-                isPlaying = true
+            // Cargar estaciones automáticamente al iniciar la app
+            LaunchedEffect(Unit) {
+                isLoading = true
+                stationList = fetchStations()
+                isLoading = false
+            }
+
+            // Función para reproducir emisora por streaming URL
+            val playStationAtIndex: (Int) -> Unit = { index ->
+                if (stationList.isNotEmpty()) {
+                    currentStationIndex = index
+                    val station = stationList[currentStationIndex]
+                    try {
+                        mediaPlayer?.release()
+                        mediaPlayer = MediaPlayer().apply {
+                            setDataSource(station.url_resolved)
+                            prepareAsync()
+                            setOnPreparedListener { mp ->
+                                mp.start()
+                                isPlaying = true
+                            }
+                        }
+                        currentStationName = station.name
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        isPlaying = false
+                    }
+                }
             }
 
             // Lanzadores de cámara y permisos
@@ -126,9 +175,9 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Título Y2K
+                    // Título
                     Text(
-                        text = "Radio Digital Y2K",
+                        text = "Radio Digital",
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Bold,
                         color = y2kPink
@@ -262,7 +311,7 @@ class MainActivity : ComponentActivity() {
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // lista de canciones
+                        // lista de emisoras de la API
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -277,7 +326,7 @@ class MainActivity : ComponentActivity() {
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(
-                                    text = "Pistas",
+                                    text = "Emisoras en Vivo (API)",
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.DarkGray
@@ -285,35 +334,49 @@ class MainActivity : ComponentActivity() {
 
                                 Spacer(modifier = Modifier.height(8.dp))
 
-                                // Lista dinámica de canciones con índice
-                                LazyColumn(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxWidth(),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    itemsIndexed(songList) { index, song ->
-                                        Card(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable {
-                                                    triggerHaptic()
-                                                    playSongAtIndex(index)
-                                                },
-                                            colors = CardDefaults.cardColors(
-                                                containerColor = if (currentSongIndex == index && isPlaying) y2kPink.copy(alpha = 0.2f) else Color.White
-                                            ),
-                                            shape = RoundedCornerShape(8.dp)
-                                        ) {
-                                            Row(
+                                if (isLoading) {
+                                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                                        CircularProgressIndicator(color = y2kPink)
+                                    }
+                                } else {
+                                    // Lista dinámica
+                                    LazyColumn(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        itemsIndexed(stationList) { index, station ->
+                                            Card(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .padding(12.dp),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
+                                                    .clickable {
+                                                        triggerHaptic()
+                                                        playStationAtIndex(index)
+                                                    },
+                                                colors = CardDefaults.cardColors(
+                                                    containerColor = if (currentStationIndex == index && isPlaying) y2kPink.copy(alpha = 0.2f) else Color.White
+                                                ),
+                                                shape = RoundedCornerShape(8.dp)
                                             ) {
-                                                Text(text = song.title, color = Color.DarkGray, fontWeight = FontWeight.Medium)
-                                                Text(text = if (currentSongIndex == index && isPlaying) "Sonando..." else "Play", color = y2kPink, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(12.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(text = station.name, color = Color.DarkGray, fontWeight = FontWeight.Medium, maxLines = 1)
+                                                        Text(text = station.country ?: "", color = Color.Gray, fontSize = 11.sp)
+                                                    }
+                                                    Text(
+                                                        text = if (currentStationIndex == index && isPlaying) "Sonando..." else "Play",
+                                                        color = y2kPink,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 12.sp
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -327,10 +390,11 @@ class MainActivity : ComponentActivity() {
 
                                 // Reproductor actual y controles
                                 Text(
-                                    text = if (isPlaying) "Sonando: $currentSongTitle" else "Estado: Pausado",
-                                    fontSize = 13.sp,
+                                    text = if (isPlaying) "Sonando: $currentStationName" else "Estado: Pausado",
+                                    fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.DarkGray
+                                    color = Color.DarkGray,
+                                    maxLines = 1
                                 )
 
                                 Spacer(modifier = Modifier.height(8.dp))
@@ -362,12 +426,14 @@ class MainActivity : ComponentActivity() {
                                         Text(text = "Pause", color = Color.White, fontWeight = FontWeight.Bold)
                                     }
 
-                                    // Botón Siguiente (con loop circular)
+                                    // Botón Siguiente con loop circular
                                     Button(
                                         onClick = {
                                             triggerHaptic()
-                                            val nextIndex = (currentSongIndex + 1) % songList.size
-                                            playSongAtIndex(nextIndex)
+                                            if (stationList.isNotEmpty()) {
+                                                val nextIndex = (currentStationIndex + 1) % stationList.size
+                                                playStationAtIndex(nextIndex)
+                                            }
                                         },
                                         colors = ButtonDefaults.buttonColors(containerColor = y2kPink)
                                     ) {
